@@ -59,7 +59,6 @@ SdDriver::~SdDriver()
 
 void SdDriver::Initialize()
 {
-	uint8_t arg[4];
 	uint8_t response;		// R1/R2/R3/R7 兼用
 	uint32_t returnValue;	// R3/R7 専用
 
@@ -75,31 +74,56 @@ void SdDriver::Initialize()
 	}
 
 	// CMD0
-	arg[0] = 0x00;
-	arg[1] = 0x00;
-	arg[2] = 0x00;
-	arg[3] = 0x00;
-	IssueCommand(0, arg);
+	IssueCommand(0, 0x00000000);
 	response = GetResponseR1();
 	ASSERT(response == 0x01);
 
-	printf("[SD] CMD0 Response: 0x%02x\n", response);
+	printf("[SD] CMD0 Response: 0x%02X\n", response);
 
 	// CMD8
-	arg[0] = 0x00;
-	arg[1] = 0x00;
-	arg[2] = 0x01;
-	arg[3] = 0xAA;
-	IssueCommand(8, arg);
+	IssueCommand(8, 0x000001AA);
 	response = GetResponseR3R7(&returnValue);
 
-	printf("[SD] CMD8 Response: 0x%02x 0x%08lx\n", response, returnValue);
+	printf("[SD] CMD8 Response: 0x%02X 0x%08lX\n", response, returnValue);
 
 	if ((returnValue & 0x000003FF) == 0x000001AA) {
 		// SD Ver2
 		printf("[SD] SD Version is 2\n");
 	} else {
 		printf("[SD] SD Version is not 2\n");
+		ASSERT(0);
+	}
+
+	do {
+		// ACMD41 (CMD55 -> CMD41)
+		IssueCommand(55, 0x00000000);
+		response = GetResponseR1();
+		printf("[SD] CMD55 Response: 0x%02X\n", response);
+
+		IssueCommand(41, 0x40000000);
+		response = GetResponseR1();
+		printf("[SD] CMD41 Response: 0x%02X\n", response);
+
+	} while (response != 0x00);
+
+	// CMD58
+	// OCR 読み込み
+	uint32_t ocr = 0;
+	IssueCommand(58, 0x00000000);
+	response = GetResponseR3R7(&ocr);
+	printf("[SD] CMD58 Response: 0x%02X, OCR: 0x%08lX\n", response, ocr);
+	// bit30 が CCS ビット。
+	// 0 なら SD Ver.2 バイト・アドレッシング、1 なら　SD Ver.2 ブロック・アドレッシング。
+	if ((ocr & 0x40000000) == 0x00000000) {
+		printf("[SD] Byte Addressing\n");
+
+		// ブロック・サイズを 512 バイトに設定
+		IssueCommand(16, 0x00000200);
+		response = GetResponseR1();
+		printf("[SD] CMD16 Response: 0x%02X\n", response);
+
+	} else {
+		printf("[SD] Block Addressing\n");
 	}
 }
 
@@ -114,17 +138,17 @@ void SdDriver::MainLoop()
 // ----------------------------------------------------------------------
 //  class private methods
 // ----------------------------------------------------------------------
-void SdDriver::IssueCommand(uint8_t command, const uint8_t *arg)
+void SdDriver::IssueCommand(uint8_t command, uint32_t argument)
 {
 	CsEnable();
 
 	uint8_t txData[6];
 	// 01xxxxxx (x: CMDn, 初期化コマンドは CMD0)
 	txData[0] = (0x40 | command);
-	txData[1] = arg[0];
-	txData[2] = arg[1];
-	txData[3] = arg[2];
-	txData[4] = arg[3];
+	txData[1] = (uint8_t)((argument & 0xFF000000) >> 24);
+	txData[2] = (uint8_t)((argument & 0x00FF0000) >> 16);
+	txData[3] = (uint8_t)((argument & 0x0000FF00) >>  8);
+	txData[4] = (uint8_t)((argument & 0x000000FF) >>  0);
 	txData[5] = (uint8_t)GetSdCrc(txData);	// CMD0 以外は不要だが他のコマンドでもついでに計算
 	HAL_SPI_Transmit(m_Spi, txData, sizeof(txData), 0xFFFF);
 
@@ -163,21 +187,23 @@ uint8_t SdDriver::GetResponseR3R7(uint32_t *pReturnValue)
 	uint8_t rxData[5];
 	bool responseOk = false;
 
-
-	// TODO: 1/13 向けメモ
-	// - 下のようなデータ列で受信する。つまり、0xFF の間は空読みしなければならない。
-	// - { 0xFF, 0x01, 0x00, 0x00, 0x01, 0xAA, 0xFF, 0xFF, 0xFF, ... }
-
-
 	// 8 バイト以内に応答があるはず
 	for (int i = 0; i < 8; i++) {
-		HAL_SPI_TransmitReceive(m_Spi, txData, rxData, sizeof(rxData), 0xFFFF);
-		if ((rxData[0] & 0x80) == 0x00) {
+		HAL_SPI_TransmitReceive(m_Spi, txData, rxData, 1, 0xFFFF);
+		if (rxData[0] == 0xFF) {
+			continue;
+		} else {
+			// TODO: response がエラーでないことを確認する必要があるかもしれない
 			responseOk = true;
 			break;
 		}
 	}
+
 	ASSERT(responseOk == true);
+
+	// rxData[0] には有効な 1 バイト目が入っている
+	// 残り 4 バイトを受信する
+	HAL_SPI_TransmitReceive(m_Spi, &txData[1], &rxData[1], sizeof(rxData) - 1, 0xFFFF);
 
 	CsDisable();
 

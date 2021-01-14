@@ -33,7 +33,7 @@ public:
 	void MainLoop();
 
 private:
-	void IssueCommand(uint8_t command, const uint8_t *arg);
+	void IssueCommand(uint8_t command, uint32_t argument);
 	uint8_t GetResponseR1();
 	uint8_t GetResponseR3R7(uint32_t *pReturnValue);
 };
