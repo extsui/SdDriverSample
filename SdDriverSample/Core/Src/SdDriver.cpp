@@ -171,13 +171,42 @@ void SdDriver::MainLoop()
 	SD::CID cid;
 	ReadRegister(&cid);
 
-	printf("CID:\n");
-	printf("  MID: %02X\n", cid.MID);
-	printf("  OID: %04X\n", cid.OID);
-	printf("  PNM: \'%c%c%c%c%c\'\n", cid.PNM[0], cid.PNM[1], cid.PNM[2], cid.PNM[3], cid.PNM[4]);
-	printf("  PSN: %08lX\n", cid.PSN);
-	printf("  MDT: %04X\n", cid.MDT);
-	printf("  CRC: %02X\n", cid.CRC);
+	printf("CID\n");
+	printf("  MID  : %02X\n", cid.MID);
+	printf("  OID  : %04X\n", cid.OID);
+	printf("  PNM  : \'%c%c%c%c%c\'\n", cid.PNM[0], cid.PNM[1], cid.PNM[2], cid.PNM[3], cid.PNM[4]);
+	printf("  PSN  : %08lX\n", cid.PSN);
+	printf("  MDT  : %04X\n", cid.MDT);
+	printf("  CRC7 : %02X\n", cid.CRC7);
+
+	SD::CSD csd;
+	ReadRegister(&csd);
+
+	printf("CSD:\n");
+	printf("  CSD_STRUCTURE      : %02X\n",  csd.CSD_STRUCTURE     );
+	printf("  TAAC               : %02X\n",  csd.TAAC              );
+	printf("  NSAC               : %02X\n",  csd.NSAC              );
+	printf("  TRAN_SPEED         : %02X\n",  csd.TRAN_SPEED        );
+	printf("  CCC                : %04X\n",  csd.CCC               );
+	printf("  READ_BL_LEN        : %02X\n",  csd.READ_BL_LEN       );
+	printf("  READ_BL_PARTIAL    : %02X\n",  csd.READ_BL_PARTIAL   );
+	printf("  WRITE_BLK_MISALIGN : %02X\n",  csd.WRITE_BLK_MISALIGN);
+	printf("  READ_BLK_MISALIGN  : %02X\n",  csd.READ_BLK_MISALIGN );
+	printf("  DSR_IMP            : %02X\n",  csd.DSR_IMP           );
+	printf("  C_SIZE             : %08lX\n", csd.C_SIZE            );
+	printf("  ERASE_BLK_EN       : %02X\n",  csd.ERASE_BLK_EN      );
+	printf("  SECTOR_SIZE        : %02X\n",  csd.SECTOR_SIZE       );
+	printf("  WP_GRP_SIZE        : %02X\n",  csd.WP_GRP_SIZE       );
+	printf("  WP_GRP_ENABLE      : %02X\n",  csd.WP_GRP_ENABLE     );
+	printf("  R2W_FACTOR         : %02X\n",  csd.R2W_FACTOR        );
+	printf("  WRITE_BL_LEN       : %02X\n",  csd.WRITE_BL_LEN      );
+	printf("  WRITE_BL_PARTIAL   : %02X\n",  csd.WRITE_BL_PARTIAL  );
+	printf("  FILE_FORMAT_GRP    : %02X\n",  csd.FILE_FORMAT_GRP   );
+	printf("  COPY               : %02X\n",  csd.COPY              );
+	printf("  PERM_WRITE_PROTECT : %02X\n",  csd.PERM_WRITE_PROTECT);
+	printf("  TMP_WRITE_PROTECT  : %02X\n",  csd.TMP_WRITE_PROTECT );
+	printf("  FILE_FORMAT        : %02X\n",  csd.FILE_FORMAT       );
+	printf("  CRC7               : %02X\n",  csd.CRC7              );
 
 	ReadSector(0, buffer);
 	Hexdump(buffer, sizeof(buffer));
@@ -364,8 +393,8 @@ void SdDriver::ReadRegister(SD::CID *pOutRegister)
 		}
 	}
 
-	uint8_t rxData[sizeof(SD::CID)];
-	HAL_SPI_TransmitReceive(m_Spi, m_Dummy, rxData, sizeof(SD::CID), 0xFFFF);
+	uint8_t rxData[SD::CID_SIZE];
+	HAL_SPI_TransmitReceive(m_Spi, m_Dummy, rxData, sizeof(rxData), 0xFFFF);
 	CsDisable();
 
 	pOutRegister->MID    = rxData[0];
@@ -381,5 +410,62 @@ void SdDriver::ReadRegister(SD::CID *pOutRegister)
 							(static_cast<uint32_t>(rxData[11]) <<  8) |
 							(static_cast<uint32_t>(rxData[12]) <<  0));
 	pOutRegister->MDT    = static_cast<uint16_t>(rxData[13] << 8) | rxData[14];
-	pOutRegister->CRC    = rxData[15];
+	pOutRegister->CRC7   = rxData[15];
+}
+
+void SdDriver::ReadRegister(SD::CSD *pOutRegister)
+{
+	uint8_t response;
+
+	IssueCommand(9, 0x00000000);
+	response = GetResponseR1();
+	printf("[SD] CMD9 Response: 0x%02X\n", response);
+
+	// MEMO: セクタ読み込みと同じ方式
+	// TODO: データパケット読み込みの共通化
+	// データパケット読み込み
+	CsEnable();
+	while (1) {
+		uint8_t txData[1] = { 0xFF };
+		uint8_t rxData[1];
+		HAL_SPI_TransmitReceive(m_Spi, txData, rxData, 1, 0xFFFF);
+		if (rxData[0] == SD::DATA_START_TOKEN_EXCEPT_CMD25) {
+			break;
+		}
+	}
+
+	uint8_t rxData[SD::CSD_SIZE];
+	HAL_SPI_TransmitReceive(m_Spi, m_Dummy, rxData, sizeof(rxData), 0xFFFF);
+	CsDisable();
+
+    pOutRegister->CSD_STRUCTURE       = (rxData[0] & 0xC0) >> 6;
+    pOutRegister->TAAC                = rxData[1];
+    pOutRegister->NSAC                = rxData[2];
+    pOutRegister->TRAN_SPEED          = rxData[3];
+    pOutRegister->CCC                 = (((uint16_t)rxData[4] & 0xF0) << 4) |
+                                        (((uint16_t)rxData[4] & 0x0F) << 4) |
+                                        (((uint16_t)rxData[5] & 0xF0) >> 4);
+    pOutRegister->READ_BL_LEN         = (rxData[5] & 0x0F);
+    pOutRegister->READ_BL_PARTIAL     = (rxData[6] & 0x80) >> 7;
+    pOutRegister->WRITE_BLK_MISALIGN  = (rxData[6] & 0x40) >> 6;
+    pOutRegister->READ_BLK_MISALIGN   = (rxData[6] & 0x20) >> 5;
+    pOutRegister->DSR_IMP             = (rxData[6] & 0x10) >> 4;
+    pOutRegister->C_SIZE              = (((uint32_t)rxData[7] & 0x3F) << 16) |
+                                        (((uint32_t)rxData[8])        <<  8) |
+                                        (((uint32_t)rxData[9])        <<  0);
+    pOutRegister->ERASE_BLK_EN        = ((rxData[10] & 0x40) >> 6);
+    pOutRegister->SECTOR_SIZE         = ((rxData[10] & 0x3F) << 1) |
+                                        ((rxData[11] & 0x80) >> 7);
+    pOutRegister->WP_GRP_SIZE         = (rxData[11] & 0x7F);
+    pOutRegister->WP_GRP_ENABLE       = (rxData[12] & 0x80) >> 7;
+    pOutRegister->R2W_FACTOR          = (rxData[12] & 0x1C) >> 2;
+    pOutRegister->WRITE_BL_LEN        = ((rxData[12] & 0x03) << 2) |
+                                        ((rxData[13] & 0xC0) >> 6);
+    pOutRegister->WRITE_BL_PARTIAL    = (rxData[13] & 0x20) >> 5;
+    pOutRegister->FILE_FORMAT_GRP     = (rxData[14] & 0x80) >> 7;
+    pOutRegister->COPY                = (rxData[14] & 0x40) >> 6;
+    pOutRegister->PERM_WRITE_PROTECT  = (rxData[14] & 0x20) >> 5;
+    pOutRegister->TMP_WRITE_PROTECT   = (rxData[14] & 0x10) >> 1;
+    pOutRegister->FILE_FORMAT         = (rxData[14] & 0x0C) >> 2;
+    pOutRegister->CRC7                = (rxData[15] & 0xFE) >> 1;
 }

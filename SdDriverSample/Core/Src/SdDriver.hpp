@@ -45,6 +45,7 @@ private:
 	uint8_t GetResponseR3R7(uint32_t *pOutReturnValue);
 	void ReadSector(uint32_t sectorNumber, uint8_t *pOutBuffer);
 	void ReadRegister(SD::CID *pOutRegister);
+	void ReadRegister(SD::CSD *pOutRegister);
 };
 
 
