@@ -7,6 +7,8 @@
 
 #include "stm32f3xx_hal_spi.h"
 
+#include "Sd.hpp"
+
 // ITM 経由のデバッグログ出力
 #define DEBUG_LOG(...)  printf(__VA_ARGS__)
 
@@ -25,6 +27,9 @@ class SdDriver
 {
 private:
 	SPI_HandleTypeDef *m_Spi;
+	// SPI 送信用のダミーデータ
+	// 全て 0xFF で埋めて使用すること。
+	uint8_t m_Dummy[SD::SECTOR_SIZE];
 
 public:
 	SdDriver(SPI_HandleTypeDef *spi);
@@ -39,6 +44,7 @@ private:
 	uint8_t GetResponseR2(uint8_t *pOutErrorStatus);
 	uint8_t GetResponseR3R7(uint32_t *pOutReturnValue);
 	void ReadSector(uint32_t sectorNumber, uint8_t *pOutBuffer);
+	void ReadRegister(SD::CID *pOutRegister);
 };
 
 

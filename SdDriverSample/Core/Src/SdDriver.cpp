@@ -85,6 +85,7 @@ void Hexdump(const uint8_t *buffer, uint32_t size)
 SdDriver::SdDriver(SPI_HandleTypeDef *spi)
 	: m_Spi(spi)
 {
+	std::memset(m_Dummy, 0xFF, SD::SECTOR_SIZE);
 }
 
 SdDriver::~SdDriver()
@@ -166,13 +167,27 @@ void SdDriver::Initialize()
 void SdDriver::MainLoop()
 {
 	static uint8_t buffer[512];
+
+	SD::CID cid;
+	ReadRegister(&cid);
+
+	printf("CID:\n");
+	printf("  MID: %02X\n", cid.MID);
+	printf("  OID: %04X\n", cid.OID);
+	printf("  PNM: \'%c%c%c%c%c\'\n", cid.PNM[0], cid.PNM[1], cid.PNM[2], cid.PNM[3], cid.PNM[4]);
+	printf("  PSN: %08lX\n", cid.PSN);
+	printf("  MDT: %04X\n", cid.MDT);
+	printf("  CRC: %02X\n", cid.CRC);
+
 	ReadSector(0, buffer);
 	Hexdump(buffer, sizeof(buffer));
 
+	/*
 	// Byte Addressing の SD カードの場合は 1-513 バイト目になる
 	// Block Addresssing の SD カードの場合は 513-1023 バイト目になる
 	ReadSector(1, buffer);
 	Hexdump(buffer, sizeof(buffer));
+	*/
 
 	while (1) {
 
@@ -292,12 +307,6 @@ uint8_t SdDriver::GetResponseR3R7(uint32_t *pOutReturnValue)
 	return rxData[0];
 }
 
-constexpr uint32_t SECTOR_SIZE = 512;
-
-constexpr uint8_t DATA_START_TOKEN_CMD25 = 0xFE;
-constexpr uint8_t DATA_START_TOKEN_EXCEPT_CMD25 = 0xFC;
-constexpr uint8_t DATA_STOP_TOKEN = 0xFD;
-
 void SdDriver::ReadSector(uint32_t sectorNumber, uint8_t *pOutBuffer)
 {
 	uint8_t response;
@@ -314,24 +323,63 @@ void SdDriver::ReadSector(uint32_t sectorNumber, uint8_t *pOutBuffer)
 		uint8_t txData[1] = { 0xFF };
 		uint8_t rxData[1];
 		HAL_SPI_TransmitReceive(m_Spi, txData, rxData, 1, 0xFFFF);
-		if (rxData[0] == DATA_START_TOKEN_CMD25) {
+		if (rxData[0] == SD::DATA_START_TOKEN_EXCEPT_CMD25) {
 			break;
 		}
 	}
 
 	// HAL_SPI_Receive() だと 0xFF 以外のデータが送信されてしまうので
 	// HAL_SPI_TransmitReceive() を使用する必要がある
-	static uint8_t dummy[SECTOR_SIZE];
-	std::memset(dummy, 0xFF, SECTOR_SIZE);
-	HAL_SPI_TransmitReceive(m_Spi, dummy, pOutBuffer, SECTOR_SIZE, 0xFFFF);
+	HAL_SPI_TransmitReceive(m_Spi, m_Dummy, pOutBuffer, SD::SECTOR_SIZE, 0xFFFF);
 
 	// データパケットに CRC が含まれているので読み込むが確認はしない
 	uint8_t crc[2];
-	HAL_SPI_TransmitReceive(m_Spi, dummy, crc, sizeof(crc), 0xFFFF);
+	HAL_SPI_TransmitReceive(m_Spi, m_Dummy, crc, sizeof(crc), 0xFFFF);
 
 	// MEMO:
 	// CMD17 の場合はデータパケットを受信完了すると自動的に
 	// data ステートから tran ステートに戻るみたいなので CMD12 (転送完了) は不要
 
 	CsDisable();
+}
+
+void SdDriver::ReadRegister(SD::CID *pOutRegister)
+{
+	uint8_t response;
+
+	IssueCommand(10, 0x00000000);
+	response = GetResponseR1();
+	printf("[SD] CMD10 Response: 0x%02X\n", response);
+
+	// MEMO: セクタ読み込みと同じ方式
+	// TODO: データパケット読み込みの共通化
+	// データパケット読み込み
+	CsEnable();
+	while (1) {
+		uint8_t txData[1] = { 0xFF };
+		uint8_t rxData[1];
+		HAL_SPI_TransmitReceive(m_Spi, txData, rxData, 1, 0xFFFF);
+		if (rxData[0] == SD::DATA_START_TOKEN_EXCEPT_CMD25) {
+			break;
+		}
+	}
+
+	uint8_t rxData[sizeof(SD::CID)];
+	HAL_SPI_TransmitReceive(m_Spi, m_Dummy, rxData, sizeof(SD::CID), 0xFFFF);
+	CsDisable();
+
+	pOutRegister->MID    = rxData[0];
+	pOutRegister->OID    = (static_cast<uint16_t>(rxData[1]) << 8) | rxData[2];
+	pOutRegister->PNM[0] = rxData[3];
+	pOutRegister->PNM[1] = rxData[4];
+	pOutRegister->PNM[2] = rxData[5];
+	pOutRegister->PNM[3] = rxData[6];
+	pOutRegister->PNM[4] = rxData[7];
+	pOutRegister->PRV    = rxData[8];
+	pOutRegister->PSN    = ((static_cast<uint32_t>(rxData[9])  << 24) |
+							(static_cast<uint32_t>(rxData[10]) << 16) |
+							(static_cast<uint32_t>(rxData[11]) <<  8) |
+							(static_cast<uint32_t>(rxData[12]) <<  0));
+	pOutRegister->MDT    = static_cast<uint16_t>(rxData[13] << 8) | rxData[14];
+	pOutRegister->CRC    = rxData[15];
 }
