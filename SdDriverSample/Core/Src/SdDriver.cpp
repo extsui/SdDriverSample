@@ -1,4 +1,6 @@
 #include "SdDriver.hpp"
+#include <cstring>
+#include <cctype>
 
 // ----------------------------------------------------------------------
 //  static private functions
@@ -39,6 +41,40 @@ uint8_t GetSdCrc(const uint8_t *buf)
 		}
 	}
 	return (uint8_t)(crc_prev | 1);
+}
+
+void Hexdump(const uint8_t *buffer, uint32_t size)
+{
+    uint32_t i;
+
+    for (i = 0; i < size; i++) {
+        uint32_t mod = i & 0xf;
+        if (mod == 0x0) {
+            printf("%08lX  ", reinterpret_cast<uint32_t>(i));
+        } else if (mod == 0x8) {
+            printf(" ");
+        }
+
+        printf("%02X", *(reinterpret_cast<const uint8_t*>(buffer + i)));
+
+        if (mod == 0xf) {
+            char c;
+            uint32_t j;
+            printf("  |");
+            for (j = 0; j <= 0xf; j++) {
+                c = *(char*)(buffer + i - 0xf + j);
+                // 表示不可能文字なら'.'に置き換える
+                if (!std::isprint(c)) {
+                    c = '.';
+                }
+                printf("%c", c);
+            }
+            printf("|\n");
+        } else {
+            printf(" ");
+        }
+    }
+    printf("\n");
 }
 
 } // namespace
@@ -129,8 +165,16 @@ void SdDriver::Initialize()
 
 void SdDriver::MainLoop()
 {
-	while (1) {
+	static uint8_t buffer[512];
+	ReadSector(0, buffer);
+	Hexdump(buffer, sizeof(buffer));
 
+	// Byte Addressing の SD カードの場合は 1-513 バイト目になる
+	// Block Addresssing の SD カードの場合は 513-1023 バイト目になる
+	ReadSector(1, buffer);
+	Hexdump(buffer, sizeof(buffer));
+
+	while (1) {
 
 	}
 }
@@ -178,8 +222,42 @@ uint8_t SdDriver::GetResponseR1()
 	return rxData[0];
 }
 
+// TODO: GetResponseR1 との共通化
+// @param [out] pOutErrorStatus エラーステータス (8 ビット)
+uint8_t SdDriver::GetResponseR2(uint8_t *pOutErrorStatus)
+{
+	CsEnable();
+
+	uint8_t txData[2] = { 0xFF, 0xFF, };	// Dummy
+	uint8_t rxData[2];
+	bool responseOk = false;
+
+	// 8 バイト以内に応答があるはず
+	for (int i = 0; i < 8; i++) {
+		HAL_SPI_TransmitReceive(m_Spi, txData, rxData, 1, 0xFFFF);
+		if (rxData[0] == 0xFF) {
+			continue;
+		} else {
+			// TODO: response がエラーでないことを確認する必要があるかもしれない
+			responseOk = true;
+			break;
+		}
+	}
+
+	ASSERT(responseOk == true);
+
+	// rxData[0] には有効な 1 バイト目が入っている
+	// 残り 1 バイトを受信する
+	HAL_SPI_TransmitReceive(m_Spi, &txData[1], &rxData[1], sizeof(rxData) - 1, 0xFFFF);
+
+	CsDisable();
+
+	*pOutErrorStatus = rxData[1];
+	return rxData[0];
+}
+
 // @param [out] pReturnValue R3/R7 の戻り値 (32 ビット)
-uint8_t SdDriver::GetResponseR3R7(uint32_t *pReturnValue)
+uint8_t SdDriver::GetResponseR3R7(uint32_t *pOutReturnValue)
 {
 	CsEnable();
 
@@ -207,14 +285,53 @@ uint8_t SdDriver::GetResponseR3R7(uint32_t *pReturnValue)
 
 	CsDisable();
 
-	*pReturnValue = (((uint32_t)rxData[1] << 24) |
+	*pOutReturnValue = (((uint32_t)rxData[1] << 24) |
 				     ((uint32_t)rxData[2] << 16) |
 					 ((uint32_t)rxData[3] <<  8) |
    	   	   	   	  	 ((uint32_t)rxData[4] <<  0));
 	return rxData[0];
 }
 
+constexpr uint32_t SECTOR_SIZE = 512;
 
-// TODO: GetResponseR2()
-// TODO: GetResponseR3()
+constexpr uint8_t DATA_START_TOKEN_CMD25 = 0xFE;
+constexpr uint8_t DATA_START_TOKEN_EXCEPT_CMD25 = 0xFC;
+constexpr uint8_t DATA_STOP_TOKEN = 0xFD;
 
+void SdDriver::ReadSector(uint32_t sectorNumber, uint8_t *pOutBuffer)
+{
+	uint8_t response;
+
+	// 1 セクタ読み込む
+	// TODO: バイトアドレッシングとブロックアドレッシングで引数が変わってくるらしい
+	IssueCommand(17, sectorNumber);
+	response = GetResponseR1();
+	printf("[SD] CMD17 Response: 0x%02X\n", response);
+
+	// データパケット読み込み
+	CsEnable();
+	while (1) {
+		uint8_t txData[1] = { 0xFF };
+		uint8_t rxData[1];
+		HAL_SPI_TransmitReceive(m_Spi, txData, rxData, 1, 0xFFFF);
+		if (rxData[0] == DATA_START_TOKEN_CMD25) {
+			break;
+		}
+	}
+
+	// HAL_SPI_Receive() だと 0xFF 以外のデータが送信されてしまうので
+	// HAL_SPI_TransmitReceive() を使用する必要がある
+	static uint8_t dummy[SECTOR_SIZE];
+	std::memset(dummy, 0xFF, SECTOR_SIZE);
+	HAL_SPI_TransmitReceive(m_Spi, dummy, pOutBuffer, SECTOR_SIZE, 0xFFFF);
+
+	// データパケットに CRC が含まれているので読み込むが確認はしない
+	uint8_t crc[2];
+	HAL_SPI_TransmitReceive(m_Spi, dummy, crc, sizeof(crc), 0xFFFF);
+
+	// MEMO:
+	// CMD17 の場合はデータパケットを受信完了すると自動的に
+	// data ステートから tran ステートに戻るみたいなので CMD12 (転送完了) は不要
+
+	CsDisable();
+}
