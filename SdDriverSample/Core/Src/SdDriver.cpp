@@ -236,6 +236,20 @@ void SdDriver::MainLoop()
 	printf("    1.8 - 1.7V : %d\n", ocr.VDD_VOLTAGE_WINDOW_18_17);
 	printf("    1.7 - 1.6V : %d\n", ocr.VDD_VOLTAGE_WINDOW_17_16);
 
+	SD::SCR scr;
+	ReadRegister(&scr);
+
+	printf("SCR ----------------------------------------\n");
+	printf("  SCR_STRUCTURE         : %02X\n", scr.SCR_STRUCTURE        );
+	printf("  SD_SPEC               : %02X\n", scr.SD_SPEC              );
+	printf("  DATA_STAT_AFTER_ERASE : %02X\n", scr.DATA_STAT_AFTER_ERASE);
+	printf("  SD_SECURITY           : %02X\n", scr.SD_SECURITY          );
+	printf("  SD_BUS_WIDTHS         : %02X\n", scr.SD_BUS_WIDTHS        );
+	printf("  SD_SPEC3              : %02X\n", scr.SD_SPEC3             );
+	printf("  EX_SECURITY           : %02X\n", scr.EX_SECURITY          );
+	printf("  SD_SPEC4              : %02X\n", scr.SD_SPEC4             );
+	printf("  CMD_SUPPORT           : %02X\n", scr.CMD_SUPPORT          );
+
 	ReadSector(0, buffer);
 	Hexdump(buffer, sizeof(buffer));
 
@@ -528,4 +542,45 @@ void SdDriver::ReadRegister(SD::CSD *pOutRegister)
     pOutRegister->TMP_WRITE_PROTECT   = (rxData[14] & 0x10) >> 1;
     pOutRegister->FILE_FORMAT         = (rxData[14] & 0x0C) >> 2;
     pOutRegister->CRC7                = (rxData[15] & 0xFE) >> 1;
+}
+
+void SdDriver::ReadRegister(SD::SCR *pOutRegister)
+{
+	uint8_t response;
+
+	// ACMD51 (CMD55 -> CMD51)
+	IssueCommand(55, 0x00000000);
+	response = GetResponseR1();
+	printf("[SD] CMD55 Response: 0x%02X\n", response);
+
+	IssueCommand(51, 0x40000000);
+	response = GetResponseR1();
+	printf("[SD] CMD51 Response: 0x%02X\n", response);
+
+	// MEMO: セクタ読み込みと同じ方式
+	// TODO: データパケット読み込みの共通化
+	// データパケット読み込み
+	CsEnable();
+	while (1) {
+		uint8_t txData[1] = { 0xFF };
+		uint8_t rxData[1];
+		HAL_SPI_TransmitReceive(m_Spi, txData, rxData, 1, 0xFFFF);
+		if (rxData[0] == SD::DATA_START_TOKEN_EXCEPT_CMD25) {
+			break;
+		}
+	}
+
+	uint8_t rxData[SD::SCR_SIZE];
+	HAL_SPI_TransmitReceive(m_Spi, m_Dummy, rxData, sizeof(rxData), 0xFFFF);
+	CsDisable();
+
+	pOutRegister->SCR_STRUCTURE         = (rxData[0] & 0xF0) >> 4;
+	pOutRegister->SD_SPEC               = (rxData[0] & 0x0F);
+	pOutRegister->DATA_STAT_AFTER_ERASE = (rxData[1] & 0x80) >> 7;
+	pOutRegister->SD_SECURITY           = (rxData[1] & 0x70) >> 4;
+	pOutRegister->SD_BUS_WIDTHS         = (rxData[1] & 0x0F);
+	pOutRegister->SD_SPEC3              = (rxData[2] & 0x80) >> 7;
+	pOutRegister->EX_SECURITY           = (rxData[2] & 0x78) >> 3;
+	pOutRegister->SD_SPEC4              = (rxData[2] & 0x04) >> 2;
+	pOutRegister->CMD_SUPPORT           = (rxData[3] & 0x0F);
 }

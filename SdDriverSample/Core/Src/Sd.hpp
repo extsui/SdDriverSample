@@ -76,7 +76,23 @@ constexpr uint32_t CSD_SIZE = 16;
 static_assert(sizeof(CSD) > 16);	// 要注意
 
 // SCR: SD Configuration Register (64 ビット)
-// TODO:
+// ビット境界の項目が多いので実際の通信データサイズ (128 ビット) と合わせていないことに注意
+struct SCR {
+	uint8_t SCR_STRUCTURE;			// SCR Structure
+	uint8_t SD_SPEC;				// SD Memory Card Spec. Version
+	uint8_t DATA_STAT_AFTER_ERASE;	// Data Status After Erases
+	uint8_t SD_SECURITY;			// CPRM Security Support
+	uint8_t SD_BUS_WIDTHS;			// DAT Bus Widths Supported
+	uint8_t SD_SPEC3;				// Spec. Version 3.00 or Higher
+	uint8_t EX_SECURITY;			// Extended Security Support
+	uint8_t SD_SPEC4;				// Spec Version 4.00 or Higher
+	// - Reserved
+	uint8_t CMD_SUPPORT;			// Command Support Bits
+	// - Reserved
+};
+
+constexpr uint32_t SCR_SIZE = 8;
+static_assert(sizeof(SCR) > 8);
 
 // OCR: Operation Conditions Register (32 ビット)
 // ビット境界の項目が多いので実際の通信データサイズと合わせていないことに注意
