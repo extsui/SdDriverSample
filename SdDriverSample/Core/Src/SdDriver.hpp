@@ -48,6 +48,7 @@ private:
 	void ReadRegister(SD::CSD *pOutRegister);
 	void ReadRegister(SD::OCR *pOutRegister);
 	void ReadRegister(SD::SCR *pOutRegister);
+	void ReadRegister(SD::SSR *pOutRegister);
 };
 
 

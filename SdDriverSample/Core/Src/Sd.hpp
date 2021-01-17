@@ -73,7 +73,7 @@ struct CSD {
 };
 
 constexpr uint32_t CSD_SIZE = 16;
-static_assert(sizeof(CSD) > 16);	// 要注意
+static_assert(sizeof(CSD) != 16);	// 要注意
 
 // SCR: SD Configuration Register (64 ビット)
 // ビット境界の項目が多いので実際の通信データサイズ (128 ビット) と合わせていないことに注意
@@ -92,7 +92,7 @@ struct SCR {
 };
 
 constexpr uint32_t SCR_SIZE = 8;
-static_assert(sizeof(SCR) > 8);
+static_assert(sizeof(SCR) != 8);
 
 // OCR: Operation Conditions Register (32 ビット)
 // ビット境界の項目が多いので実際の通信データサイズと合わせていないことに注意
@@ -125,10 +125,24 @@ struct OCR {
 };
 
 constexpr uint32_t OCR_SIZE = 4;
-static_assert(sizeof(OCR) > 4);
+static_assert(sizeof(OCR) != 4);
 
 // SSR: SD Status Register (512 ビット)
-// TODO:
+struct SSR {
+	uint8_t  DAT_BUS_WIDTH;
+	uint8_t  SECURED_MODE;
+	uint16_t SD_CARD_TYPE;
+	uint32_t SIZE_OF_PROTECTED_AREA;
+	uint8_t  SPEED_CLASS;
+	uint8_t  PERFORMANCE_MOVE;
+	uint8_t  AU_SIZE;
+	uint16_t ERASE_SIZE;
+	uint8_t  ERASE_TIMEOUT;
+	uint8_t  ERASE_OFFSET;
+};
+
+constexpr uint32_t SSR_SIZE = 64;
+static_assert(sizeof(SSR) != 64);
 
 // CSR: Card Status Register (32 ビット)
 // TODO:

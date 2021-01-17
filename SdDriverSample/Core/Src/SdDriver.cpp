@@ -250,6 +250,21 @@ void SdDriver::MainLoop()
 	printf("  SD_SPEC4              : %02X\n", scr.SD_SPEC4             );
 	printf("  CMD_SUPPORT           : %02X\n", scr.CMD_SUPPORT          );
 
+	SD::SSR ssr;
+	ReadRegister(&ssr);
+
+	printf("SSR ----------------------------------------\n");
+    printf("  DAT_BUS_WIDTH          : %02X\n",  ssr.DAT_BUS_WIDTH         );
+    printf("  SECURED_MODE           : %02X\n",  ssr.SECURED_MODE          );
+    printf("  SD_CARD_TYPE           : %04X\n",  ssr.SD_CARD_TYPE          );
+    printf("  SIZE_OF_PROTECTED_AREA : %08lX\n", ssr.SIZE_OF_PROTECTED_AREA);
+    printf("  SPEED_CLASS            : %02X\n",  ssr.SPEED_CLASS           );
+    printf("  PERFORMANCE_MOVE       : %02X\n",  ssr.PERFORMANCE_MOVE      );
+    printf("  AU_SIZE                : %02X\n",  ssr.AU_SIZE               );
+    printf("  ERASE_SIZE             : %04X\n",  ssr.ERASE_SIZE            );
+    printf("  ERASE_TIMEOUT          : %02X\n",  ssr.ERASE_TIMEOUT         );
+    printf("  ERASE_OFFSET           : %02X\n",  ssr.ERASE_OFFSET          );
+
 	ReadSector(0, buffer);
 	Hexdump(buffer, sizeof(buffer));
 
@@ -583,4 +598,50 @@ void SdDriver::ReadRegister(SD::SCR *pOutRegister)
 	pOutRegister->EX_SECURITY           = (rxData[2] & 0x78) >> 3;
 	pOutRegister->SD_SPEC4              = (rxData[2] & 0x04) >> 2;
 	pOutRegister->CMD_SUPPORT           = (rxData[3] & 0x0F);
+}
+
+void SdDriver::ReadRegister(SD::SSR *pOutRegister)
+{
+	uint8_t response;
+
+	// ACMD51 (CMD55 -> CMD51)
+	IssueCommand(55, 0x00000000);
+	response = GetResponseR1();
+	printf("[SD] CMD55 Response: 0x%02X\n", response);
+
+	IssueCommand(13, 0x40000000);
+	response = GetResponseR1();
+	printf("[SD] CMD51 Response: 0x%02X\n", response);
+
+	// MEMO: セクタ読み込みと同じ方式
+	// TODO: データパケット読み込みの共通化
+	// データパケット読み込み
+	CsEnable();
+	while (1) {
+		uint8_t txData[1] = { 0xFF };
+		uint8_t rxData[1];
+		HAL_SPI_TransmitReceive(m_Spi, txData, rxData, 1, 0xFFFF);
+		if (rxData[0] == SD::DATA_START_TOKEN_EXCEPT_CMD25) {
+			break;
+		}
+	}
+
+	uint8_t rxData[SD::SSR_SIZE];
+	HAL_SPI_TransmitReceive(m_Spi, m_Dummy, rxData, sizeof(rxData), 0xFFFF);
+	CsDisable();
+
+	pOutRegister->DAT_BUS_WIDTH			 = (rxData[0] & 0xC0) >> 6;
+	pOutRegister->SECURED_MODE			 = (rxData[0] & 0x20) >> 5;
+	pOutRegister->SD_CARD_TYPE			 = (((uint16_t)rxData[2] << 8) | rxData[3]);
+	pOutRegister->SIZE_OF_PROTECTED_AREA = (((uint32_t)rxData[4] << 24) |
+										    ((uint32_t)rxData[5] << 16) |
+										    ((uint32_t)rxData[6] <<  8) |
+										    ((uint32_t)rxData[7]));
+	pOutRegister->SPEED_CLASS			 = rxData[8];
+	pOutRegister->PERFORMANCE_MOVE		 = rxData[9];
+	pOutRegister->AU_SIZE				 = (rxData[10] & 0xC0) >> 4;
+	pOutRegister->ERASE_SIZE			 = (((uint16_t)rxData[11] << 8) | rxData[12]);
+	pOutRegister->ERASE_TIMEOUT			 = (rxData[13] & 0xFC) >> 2;
+	pOutRegister->ERASE_OFFSET			 = (rxData[13] & 0x03);
+
 }
