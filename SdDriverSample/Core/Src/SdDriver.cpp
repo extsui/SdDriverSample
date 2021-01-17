@@ -171,7 +171,7 @@ void SdDriver::MainLoop()
 	SD::CID cid;
 	ReadRegister(&cid);
 
-	printf("CID\n");
+	printf("CID ----------------------------------------\n");
 	printf("  MID  : %02X\n", cid.MID);
 	printf("  OID  : %04X\n", cid.OID);
 	printf("  PNM  : \'%c%c%c%c%c\'\n", cid.PNM[0], cid.PNM[1], cid.PNM[2], cid.PNM[3], cid.PNM[4]);
@@ -182,7 +182,7 @@ void SdDriver::MainLoop()
 	SD::CSD csd;
 	ReadRegister(&csd);
 
-	printf("CSD:\n");
+	printf("CSD ----------------------------------------\n");
 	printf("  CSD_STRUCTURE      : %02X\n",  csd.CSD_STRUCTURE     );
 	printf("  TAAC               : %02X\n",  csd.TAAC              );
 	printf("  NSAC               : %02X\n",  csd.NSAC              );
@@ -207,6 +207,34 @@ void SdDriver::MainLoop()
 	printf("  TMP_WRITE_PROTECT  : %02X\n",  csd.TMP_WRITE_PROTECT );
 	printf("  FILE_FORMAT        : %02X\n",  csd.FILE_FORMAT       );
 	printf("  CRC7               : %02X\n",  csd.CRC7              );
+
+	SD::OCR ocr;
+	ReadRegister(&ocr);
+
+	printf("OCR ----------------------------------------\n");
+	printf("  Busy Flag    : %d (%s)\n", ocr.CARD_POWER_UP_STATUS_BIT, ((ocr.CARD_POWER_UP_STATUS_BIT == 1) ? "Busy" : "Free"));
+	printf("  CCS  Flag    : %d (%s)\n", ocr.CARD_CAPACITY_STATUS,     ((ocr.CARD_CAPACITY_STATUS     == 1) ? "Block Addressing" : "Byte Addressing"));
+	printf("  Voltage Window:\n");
+	printf("    3.6 - 3.5V : %d\n", ocr.VDD_VOLTAGE_WINDOW_36_35);
+	printf("    3.5 - 3.4V : %d\n", ocr.VDD_VOLTAGE_WINDOW_35_34);
+	printf("    3.4 - 3.3V : %d\n", ocr.VDD_VOLTAGE_WINDOW_34_33);
+	printf("    3.3 - 3.2V : %d\n", ocr.VDD_VOLTAGE_WINDOW_33_32);
+	printf("    3.2 - 3.1V : %d\n", ocr.VDD_VOLTAGE_WINDOW_32_31);
+	printf("    3.1 - 3.0V : %d\n", ocr.VDD_VOLTAGE_WINDOW_31_30);
+	printf("    3.0 - 2.9V : %d\n", ocr.VDD_VOLTAGE_WINDOW_30_29);
+	printf("    2.9 - 2.8V : %d\n", ocr.VDD_VOLTAGE_WINDOW_29_28);
+	printf("    2.8 - 2.7V : %d\n", ocr.VDD_VOLTAGE_WINDOW_28_27);
+	printf("    2.7 - 2.6V : %d\n", ocr.VDD_VOLTAGE_WINDOW_27_26);
+	printf("    2.6 - 2.5V : %d\n", ocr.VDD_VOLTAGE_WINDOW_26_25);
+	printf("    2.5 - 2.4V : %d\n", ocr.VDD_VOLTAGE_WINDOW_25_24);
+	printf("    2.4 - 2.3V : %d\n", ocr.VDD_VOLTAGE_WINDOW_24_23);
+	printf("    2.3 - 2.2V : %d\n", ocr.VDD_VOLTAGE_WINDOW_23_22);
+	printf("    2.2 - 2.1V : %d\n", ocr.VDD_VOLTAGE_WINDOW_22_21);
+	printf("    2.1 - 2.0V : %d\n", ocr.VDD_VOLTAGE_WINDOW_21_20);
+	printf("    2.0 - 1.9V : %d\n", ocr.VDD_VOLTAGE_WINDOW_20_19);
+	printf("    1.9 - 1.8V : %d\n", ocr.VDD_VOLTAGE_WINDOW_19_18);
+	printf("    1.8 - 1.7V : %d\n", ocr.VDD_VOLTAGE_WINDOW_18_17);
+	printf("    1.7 - 1.6V : %d\n", ocr.VDD_VOLTAGE_WINDOW_17_16);
 
 	ReadSector(0, buffer);
 	Hexdump(buffer, sizeof(buffer));
@@ -411,6 +439,38 @@ void SdDriver::ReadRegister(SD::CID *pOutRegister)
 							(static_cast<uint32_t>(rxData[12]) <<  0));
 	pOutRegister->MDT    = static_cast<uint16_t>(rxData[13] << 8) | rxData[14];
 	pOutRegister->CRC7   = rxData[15];
+}
+
+void SdDriver::ReadRegister(SD::OCR *pOutRegister)
+{
+	uint8_t response;
+	uint32_t ocr;
+	IssueCommand(58, 0x00000000);
+	response = GetResponseR3R7(&ocr);
+	printf("[SD] CMD58 Response: 0x%02X, OCR: 0x%08lX\n", response, ocr);
+
+	pOutRegister->CARD_POWER_UP_STATUS_BIT = (uint8_t)((ocr & 0x80000000) >> 31);
+	pOutRegister->CARD_CAPACITY_STATUS     = (uint8_t)((ocr & 0x40000000) >> 30);
+	pOutRegister->VDD_VOLTAGE_WINDOW_36_35 = (uint8_t)((ocr & 0x00800000) >> 23);
+	pOutRegister->VDD_VOLTAGE_WINDOW_35_34 = (uint8_t)((ocr & 0x00400000) >> 22);
+	pOutRegister->VDD_VOLTAGE_WINDOW_34_33 = (uint8_t)((ocr & 0x00200000) >> 21);
+	pOutRegister->VDD_VOLTAGE_WINDOW_33_32 = (uint8_t)((ocr & 0x00100000) >> 20);
+	pOutRegister->VDD_VOLTAGE_WINDOW_32_31 = (uint8_t)((ocr & 0x00080000) >> 19);
+	pOutRegister->VDD_VOLTAGE_WINDOW_31_30 = (uint8_t)((ocr & 0x00040000) >> 18);
+	pOutRegister->VDD_VOLTAGE_WINDOW_30_29 = (uint8_t)((ocr & 0x00020000) >> 17);
+	pOutRegister->VDD_VOLTAGE_WINDOW_29_28 = (uint8_t)((ocr & 0x00010000) >> 16);
+	pOutRegister->VDD_VOLTAGE_WINDOW_28_27 = (uint8_t)((ocr & 0x00008000) >> 15);
+	pOutRegister->VDD_VOLTAGE_WINDOW_27_26 = (uint8_t)((ocr & 0x00004000) >> 14);
+	pOutRegister->VDD_VOLTAGE_WINDOW_26_25 = (uint8_t)((ocr & 0x00002000) >> 13);
+	pOutRegister->VDD_VOLTAGE_WINDOW_25_24 = (uint8_t)((ocr & 0x00001000) >> 12);
+	pOutRegister->VDD_VOLTAGE_WINDOW_24_23 = (uint8_t)((ocr & 0x00000800) >> 11);
+	pOutRegister->VDD_VOLTAGE_WINDOW_23_22 = (uint8_t)((ocr & 0x00000400) >> 10);
+	pOutRegister->VDD_VOLTAGE_WINDOW_22_21 = (uint8_t)((ocr & 0x00000200) >>  9);
+	pOutRegister->VDD_VOLTAGE_WINDOW_21_20 = (uint8_t)((ocr & 0x00000100) >>  8);
+	pOutRegister->VDD_VOLTAGE_WINDOW_20_19 = (uint8_t)((ocr & 0x00000080) >>  7);
+	pOutRegister->VDD_VOLTAGE_WINDOW_19_18 = (uint8_t)((ocr & 0x00000040) >>  6);
+	pOutRegister->VDD_VOLTAGE_WINDOW_18_17 = (uint8_t)((ocr & 0x00000020) >>  5);
+	pOutRegister->VDD_VOLTAGE_WINDOW_17_16 = (uint8_t)((ocr & 0x00000010) >>  4);
 }
 
 void SdDriver::ReadRegister(SD::CSD *pOutRegister)

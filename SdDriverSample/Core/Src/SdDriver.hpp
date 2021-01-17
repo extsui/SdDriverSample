@@ -46,6 +46,7 @@ private:
 	void ReadSector(uint32_t sectorNumber, uint8_t *pOutBuffer);
 	void ReadRegister(SD::CID *pOutRegister);
 	void ReadRegister(SD::CSD *pOutRegister);
+	void ReadRegister(SD::OCR *pOutRegister);
 };
 
 

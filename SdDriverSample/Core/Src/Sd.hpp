@@ -13,6 +13,7 @@ constexpr uint8_t DATA_STOP_TOKEN = 0xFD;
 
 #pragma pack(push, 1)
 
+// CID: Card Identification (128 ビット)
 // バイト境界の項目が多いので実際の通信データサイズ (128 ビット) と合わせている
 struct CID {
 	uint8_t  MID;		// 製造者 ID
@@ -29,6 +30,13 @@ struct CID {
 constexpr uint32_t CID_SIZE = 16;
 static_assert(sizeof(CID) == 16);
 
+// RCA: Relative Card Address (16 ビット)
+// TODO:
+
+// DSR: Driver Stage Register (16 ビット)
+// TODO:
+
+// CSD: Card Specific Data (128 ビット)
 // ビット境界の項目が多いので実際の通信データサイズ (128 ビット) と合わせていないことに注意
 struct CSD {
 	uint8_t  CSD_STRUCTURE;			// CSD バージョン
@@ -66,6 +74,48 @@ struct CSD {
 
 constexpr uint32_t CSD_SIZE = 16;
 static_assert(sizeof(CSD) > 16);	// 要注意
+
+// SCR: SD Configuration Register (64 ビット)
+// TODO:
+
+// OCR: Operation Conditions Register (32 ビット)
+// ビット境界の項目が多いので実際の通信データサイズと合わせていないことに注意
+struct OCR {
+	uint8_t CARD_POWER_UP_STATUS_BIT;	// 0: busy / 1: ready
+	uint8_t CARD_CAPACITY_STATUS;		// 0: SD Memory Card / 1: SDHC Memory Card
+	// - Reserved
+	// 動作電圧ウィンドウ (1 の立っている範囲の電圧に対応)
+	uint8_t VDD_VOLTAGE_WINDOW_36_35;	// 3.6 - 3.5V
+	uint8_t VDD_VOLTAGE_WINDOW_35_34;	// 3.5 - 3.4V
+	uint8_t VDD_VOLTAGE_WINDOW_34_33;	// 3.4 - 3.3V
+	uint8_t VDD_VOLTAGE_WINDOW_33_32;	// 3.3 - 3.2V
+	uint8_t VDD_VOLTAGE_WINDOW_32_31;	// 3.2 - 3.1V
+	uint8_t VDD_VOLTAGE_WINDOW_31_30;	// 3.1 - 3.0V
+	uint8_t VDD_VOLTAGE_WINDOW_30_29;	// 3.0 - 2.9V
+	uint8_t VDD_VOLTAGE_WINDOW_29_28;	// 2.9 - 2.8V
+	uint8_t VDD_VOLTAGE_WINDOW_28_27;	// 2.8 - 2.7V
+	uint8_t VDD_VOLTAGE_WINDOW_27_26;	// 2.7 - 2.6V
+	uint8_t VDD_VOLTAGE_WINDOW_26_25;	// 2.6 - 2.5V
+	uint8_t VDD_VOLTAGE_WINDOW_25_24;	// 2.5 - 2.4V
+	uint8_t VDD_VOLTAGE_WINDOW_24_23;	// 2.4 - 2.3V
+	uint8_t VDD_VOLTAGE_WINDOW_23_22;	// 2.3 - 2.2V
+	uint8_t VDD_VOLTAGE_WINDOW_22_21;	// 2.2 - 2.1V
+	uint8_t VDD_VOLTAGE_WINDOW_21_20;	// 2.1 - 2.0V
+	uint8_t VDD_VOLTAGE_WINDOW_20_19;	// 2.0 - 1.9V
+	uint8_t VDD_VOLTAGE_WINDOW_19_18;	// 1.9 - 1.8V
+	uint8_t VDD_VOLTAGE_WINDOW_18_17;	// 1.8 - 1.7V
+	uint8_t VDD_VOLTAGE_WINDOW_17_16;	// 1.7 - 1.6V
+	// - Reserved
+};
+
+constexpr uint32_t OCR_SIZE = 4;
+static_assert(sizeof(OCR) > 4);
+
+// SSR: SD Status Register (512 ビット)
+// TODO:
+
+// CSR: Card Status Register (32 ビット)
+// TODO:
 
 }
 
