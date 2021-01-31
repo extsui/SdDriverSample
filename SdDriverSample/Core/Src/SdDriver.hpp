@@ -9,8 +9,9 @@
 
 #include "Sd.hpp"
 
-// ITM 経由のデバッグログ出力
 #define DEBUG_LOG(...)  printf(__VA_ARGS__)
+
+extern "C" int ConsoleReadLine(uint8_t *pOutBuffer);
 
 static inline void ABORT() { while (1); }
 
@@ -43,13 +44,19 @@ private:
 	uint8_t GetResponseR1();
 	uint8_t GetResponseR2(uint8_t *pOutErrorStatus);
 	uint8_t GetResponseR3R7(uint32_t *pOutReturnValue);
+	uint8_t GetDataResponse();
+	
+	void GetStatus();
+
 	void ReadSector(uint32_t sectorNumber, uint8_t *pOutBuffer);
+	void WriteSector(uint32_t sectorNumber, const uint8_t *pBuffer);
+	void EraseSector(uint32_t sectorNumber);
+
 	void ReadRegister(SD::CID *pOutRegister);
 	void ReadRegister(SD::CSD *pOutRegister);
 	void ReadRegister(SD::OCR *pOutRegister);
 	void ReadRegister(SD::SCR *pOutRegister);
 	void ReadRegister(SD::SSR *pOutRegister);
 };
-
 
 #endif /* SD_SAMPLE_HPP */

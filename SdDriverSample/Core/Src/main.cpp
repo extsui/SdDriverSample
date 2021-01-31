@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "SdDriver.hpp"
 /* USER CODE END Includes */
@@ -73,6 +74,32 @@ extern "C" PUTCHAR_PROTOTYPE
   HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, 0xFFFF);
 
   return ch;
+}
+
+// 同期型シリアル行単位読み込み (1 行読み込むまで戻らない)
+// 末尾の改行は除去済み
+extern "C" int ConsoleReadLine(uint8_t *pOutBuffer)
+{
+  static uint8_t buffer[80];
+  int length = 0;
+  
+  while (1) {
+    uint8_t ch;
+    HAL_StatusTypeDef status;
+    status = HAL_UART_Receive(&huart2, &ch, 1, 0xFFFF);
+    if (status == HAL_TIMEOUT) {
+      continue;
+    }
+    if (ch == '\n') {
+      buffer[length] = '\0';
+      break;
+    }
+
+    buffer[length] = ch;
+    length++;
+  }
+  memcpy(pOutBuffer, buffer, length);
+  return length;
 }
 /* USER CODE END 0 */
 
