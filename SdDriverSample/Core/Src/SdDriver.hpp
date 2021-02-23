@@ -48,24 +48,40 @@ public:
 
 private:
 	uint8_t IssueCommand(uint8_t command, uint32_t argument, SD::ResponseType responseType, void *pAdditionalResponse);
-	uint8_t IssueCommand(uint8_t command, uint32_t argument, SD::ResponseType responseType)
-	{
-		return IssueCommand(command, argument, responseType, nullptr);
-	}
+	uint8_t IssueCommand(uint8_t command, uint32_t argument, SD::ResponseType responseType);
 
+	// CMD0
 	void IssueCommandGoIdleState();
+	// CMD8
 	void IssueCommandSendIfCond();
-	void IssueCommandAppCmd();
-	void IssueCommandAppSendOpCond();
+	// CMD9
+	void IssueCommandSendCsd();
+	// CMD10
+	void IssueCommandSendCid();
+	// CMD13
 	void IssueCommandGetStatus();
+	// CMD16
+	void IssueCommandSetBlocklen();
+	// CMD17
+	void IssueCommandReadSingleSector(uint32_t sectorNumber);
+	// CMD24
+	void IssueCommandWriteSingleSector(uint32_t sectorNumber);
+	// CMD55
+	void IssueCommandAppCmd();
+	// CMD58
+	void IssueCommandReadOcr(uint32_t *pOutOcr);
+	// ACMD13
+	void IssueCommandSdStatus();
+	// ACMD41
+	void IssueCommandAppSendOpCond();
+	// ACMD51
+	void IssueCommandSendScr();
 
 	uint8_t GetResponseR1();
 	uint8_t GetResponseR2(uint8_t *pOutErrorStatus);
 	uint8_t GetResponseR3R7(uint32_t *pOutReturnValue);
 	uint8_t GetDataResponse();
 	
-	void GetStatus();
-
 	void ReadSector(uint32_t sectorNumber, uint8_t *pOutBuffer);
 	void WriteSector(uint32_t sectorNumber, const uint8_t *pBuffer);
 	void EraseSector(uint32_t sectorNumber);

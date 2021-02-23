@@ -180,30 +180,29 @@ void SdDriver::Initialize()
 		HAL_SPI_Transmit(m_Spi, dummy, 1, 0xFFFF);
 	}
 
+	// CMD0: SPI モードへの移行
 	IssueCommandGoIdleState();
+	// CMD8: SD Ver 判定
 	IssueCommandSendIfCond();
+	// ACMD41: SD 初期化
 	IssueCommandAppSendOpCond();
-
-	// CMD58
-	//IssueCommandReadOcr();
-	// OCR 読み込み
-	uint32_t ocr = 0;
-	IssueCommand(58, 0x00000000, SD::ResponseType::R3, &ocr);
-	// bit30 が CCS ビット。
-	// 0 なら SD Ver.2 バイト・アドレッシング、1 なら　SD Ver.2 ブロック・アドレッシング。
-	if ((ocr & 0x40000000) == 0x00000000) {
-		printf("[SD] Byte Addressing\n");
-
-		// ブロック・サイズを 512 バイトに設定
-		IssueCommand(16, 0x00000200, SD::ResponseType::R1);
-
-	} else {
-		printf("[SD] Block Addressing\n");
+	// CMD58: アドレッシング確認
+	SD::OCR ocr;
+	ReadRegister(&ocr);
+	// 2GB 以下の SD カードはバイトアドレッシング
+	if (ocr.CARD_CAPACITY_STATUS == 0) {
+		// CMD16: ブロック長の設定
+		IssueCommandSetBlocklen();
+	
+		// TODO: バイトアドレッシングは面倒なので未対応
+		// (データ転送で *512 するだけではある)
+		ASSERT(0);
+		printf("[SD] Error: Byte Addressing is not supported.\n");
 	}
 
 	// -- ここまでで初期化は完了 --
 
-	// SD カードの容量取得
+	// CMD9: SD カードの容量取得
 	SD::CSD csd;
 	ReadRegister(&csd);
 	m_SectorCount = csd.C_SIZE * 1024;
@@ -386,22 +385,28 @@ uint8_t SdDriver::IssueCommand(uint8_t command, uint32_t argument, SD::ResponseT
 		r1Response = GetResponseR1();
 		printf("[SD] R1 0x%02X\n", r1Response);
 		break;
+
 	case SD::ResponseType::R2:
+		ASSERT(pAdditionalResponse != nullptr);
 		r1Response = GetResponseR2(&r2ErrorStatus);
 		*reinterpret_cast<uint8_t*>(pAdditionalResponse) = r2ErrorStatus;
 		printf("[SD] R2 0x%02X 0x%02X\n", r1Response, r2ErrorStatus);
 		break;
+
 	case SD::ResponseType::R3:
 	case SD::ResponseType::R7:
+		ASSERT(pAdditionalResponse != nullptr);
 		r1Response = GetResponseR3R7(&r3r7ReturnValue);
 		*reinterpret_cast<uint32_t*>(pAdditionalResponse) = r3r7ReturnValue;
-		printf("[SD] R3/R7 0x%02X 0x%08lX\n", r1Response, r3r7ReturnValue);
+		printf("[SD] %s 0x%02X 0x%08lX\n", ((responseType == SD::ResponseType::R3) ? "R3" : "R7"), r1Response, r3r7ReturnValue);
 		break;
+
 	case SD::ResponseType::R1b:
 		// TODO: Not Implemented
 		printf("[SD] R1b is not implemented.\n");
 		ASSERT(0);
 		break;
+
 	default:
 		// ここに来ることは無い
 		ASSERT(0);
@@ -413,11 +418,19 @@ uint8_t SdDriver::IssueCommand(uint8_t command, uint32_t argument, SD::ResponseT
 	return r1Response;
 }
 
+uint8_t SdDriver::IssueCommand(uint8_t command, uint32_t argument, SD::ResponseType responseType)
+{
+	return IssueCommand(command, argument, responseType, nullptr);
+}
+
 // CMD0 + アイドル状態確認
 void SdDriver::IssueCommandGoIdleState()
 {
 	uint8_t response = IssueCommand(0, 0x00000000, SD::ResponseType::R1);
-	ASSERT(response == static_cast<uint8_t>(SD::R1ResponseFormat::InIdleState));
+	if (response != static_cast<uint8_t>(SD::R1ResponseFormat::InIdleState)) {
+		printf("[SD] Error: CMD0 Resp is not InIdleState.\n");
+		ASSERT(0);
+	}
 }
 
 // CMD8 + SD Version 確認 (要 ver.2)
@@ -425,19 +438,72 @@ void SdDriver::IssueCommandSendIfCond()
 {
 	uint32_t returnValue = 0;
 	IssueCommand(8, 0x000001AA, SD::ResponseType::R7, &returnValue);
-	if ((returnValue & 0x000003FF) == 0x000001AA) {
-		// SD Ver2
-		printf("[SD] SD Version is 2\n");
-	} else {
-		printf("[SD] SD Version is not 2\n");
+	if ((returnValue & 0x000003FF) != 0x000001AA) {
+		printf("[SD] Error: SD Version must be 2.\n");
 		ASSERT(0);
 	}
+}
+
+// CMD9
+void SdDriver::IssueCommandSendCsd()
+{
+	IssueCommand(9, 0x00000000, SD::ResponseType::R1);
+}
+
+// CMD10
+void SdDriver::IssueCommandSendCid()
+{
+	IssueCommand(10, 0x00000000, SD::ResponseType::R1);
+}
+
+// CMD13 + エラー確認
+void SdDriver::IssueCommandGetStatus()
+{
+	uint8_t errorStatus;
+	IssueCommand(13, 0x00000000, SD::ResponseType::R2, &errorStatus);
+
+	// TODO: errorStatus のハンドリング処理
+}
+
+// CMD16
+void SdDriver::IssueCommandSetBlocklen()
+{
+	// ブロック・サイズを 512 バイトに設定
+	IssueCommand(16, 0x00000200, SD::ResponseType::R1);
+}
+
+// CMD17
+void SdDriver::IssueCommandReadSingleSector(uint32_t sectorNumber)
+{
+	IssueCommand(17, sectorNumber, SD::ResponseType::R1);
+}
+
+// CMD24
+void SdDriver::IssueCommandWriteSingleSector(uint32_t sectorNumber)
+{
+	IssueCommand(24, sectorNumber, SD::ResponseType::R1);
 }
 
 // CMD55 (ACMDn 用)
 void SdDriver::IssueCommandAppCmd()
 {
 	IssueCommand(55, 0x00000000, SD::ResponseType::R1);
+}
+
+// CMD58
+void SdDriver::IssueCommandReadOcr(uint32_t *pOutOcr)
+{
+	uint32_t ocr = 0;
+	IssueCommand(58, 0x00000000, SD::ResponseType::R3, &ocr);
+	ASSERT(pOutOcr != nullptr);
+	*pOutOcr = ocr;
+}
+
+// ACMD13
+void SdDriver::IssueCommandSdStatus()
+{
+	IssueCommandAppCmd();
+	IssueCommand(13, 0x40000000, SD::ResponseType::R1);
 }
 
 // ACMD41 + 初期化完了確認
@@ -448,15 +514,16 @@ void SdDriver::IssueCommandAppSendOpCond()
 	while (response != 0x00) {
 		IssueCommandAppCmd();
 		response = IssueCommand(41, 0x40000000, SD::ResponseType::R1);
+		// TODO: 初期化確認ループ周期の決定
+		HAL_Delay(10);
 	}
 }
 
-void SdDriver::IssueCommandGetStatus()
+// ACMD51
+void SdDriver::IssueCommandSendScr()
 {
-	uint8_t errorStatus;
-	IssueCommand(13, 0x00000000, SD::ResponseType::R2, &errorStatus);
-
-	// TODO: errorStatus のハンドリング処理
+	IssueCommandAppCmd();
+	IssueCommand(51, 0x40000000, SD::ResponseType::R1);
 }
 
 uint8_t SdDriver::GetResponseR1()
@@ -480,66 +547,31 @@ uint8_t SdDriver::GetResponseR1()
 	return rxData[0];
 }
 
-// TODO: GetResponseR1 との共通化
-// @param [out] pOutErrorStatus エラーステータス (8 ビット)
 uint8_t SdDriver::GetResponseR2(uint8_t *pOutErrorStatus)
 {
-	uint8_t txData[2] = { 0xFF, 0xFF, };	// Dummy
-	uint8_t rxData[2];
-	bool responseOk = false;
+	uint8_t r1Response = GetResponseR1();
 
-	// 8 バイト以内に応答があるはず
-	for (int i = 0; i < 8; i++) {
-		HAL_SPI_TransmitReceive(m_Spi, txData, rxData, 1, 0xFFFF);
-		if (rxData[0] == 0xFF) {
-			continue;
-		} else {
-			// TODO: response がエラーでないことを確認する必要があるかもしれない
-			responseOk = true;
-			break;
-		}
-	}
+	uint8_t txData[1] = { 0xFF, };	// Dummy
+	uint8_t rxData[1];
+	HAL_SPI_TransmitReceive(m_Spi, txData, rxData, sizeof(rxData), 0xFFFF);
+	*pOutErrorStatus = rxData[0];
 
-	ASSERT(responseOk == true);
-
-	// rxData[0] には有効な 1 バイト目が入っている
-	// 残り 1 バイトを受信する
-	HAL_SPI_TransmitReceive(m_Spi, &txData[1], &rxData[1], sizeof(rxData) - 1, 0xFFFF);
-
-	*pOutErrorStatus = rxData[1];
-	return rxData[0];
+	return r1Response;
 }
 
-// @param [out] pReturnValue R3/R7 の戻り値 (32 ビット)
 uint8_t SdDriver::GetResponseR3R7(uint32_t *pOutReturnValue)
 {
-	uint8_t txData[5] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, };	// Dummy
-	uint8_t rxData[5];
-	bool responseOk = false;
+	uint8_t r1Response = GetResponseR1();
 
-	// 8 バイト以内に応答があるはず
-	for (int i = 0; i < 8; i++) {
-		HAL_SPI_TransmitReceive(m_Spi, txData, rxData, 1, 0xFFFF);
-		if (rxData[0] == 0xFF) {
-			continue;
-		} else {
-			// TODO: response がエラーでないことを確認する必要があるかもしれない
-			responseOk = true;
-			break;
-		}
-	}
+	uint8_t txData[4] = { 0xFF, 0xFF, 0xFF, 0xFF, };	// Dummy
+	uint8_t rxData[4];
+	HAL_SPI_TransmitReceive(m_Spi, txData, rxData, sizeof(rxData), 0xFFFF);
 
-	ASSERT(responseOk == true);
-
-	// rxData[0] には有効な 1 バイト目が入っている
-	// 残り 4 バイトを受信する
-	HAL_SPI_TransmitReceive(m_Spi, &txData[1], &rxData[1], sizeof(rxData) - 1, 0xFFFF);
-
-	*pOutReturnValue = (((uint32_t)rxData[1] << 24) |
-				    	((uint32_t)rxData[2] << 16) |
-						((uint32_t)rxData[3] <<  8) |
-   	   	   	   	  		((uint32_t)rxData[4] <<  0));
-	return rxData[0];
+	*pOutReturnValue = (((uint32_t)rxData[0] << 24) |
+				    	((uint32_t)rxData[1] << 16) |
+						((uint32_t)rxData[2] <<  8) |
+   	   	   	   	  		((uint32_t)rxData[3] <<  0));
+	return r1Response;
 }
 
 // R1 系の後に 0xFF が来るまで待つ
@@ -571,9 +603,7 @@ uint8_t SdDriver::GetDataResponse()
 
 void SdDriver::ReadSector(uint32_t sectorNumber, uint8_t *pOutBuffer)
 {
-	// 1 セクタ読み込む
-	// TODO: バイトアドレッシングとブロックアドレッシングで引数が変わってくるらしい
-	IssueCommand(17, sectorNumber, SD::ResponseType::R1);
+	IssueCommandReadSingleSector(sectorNumber);
 
 	// データパケット読み込み
 	CsEnable();
@@ -603,8 +633,7 @@ void SdDriver::ReadSector(uint32_t sectorNumber, uint8_t *pOutBuffer)
 
 void SdDriver::WriteSector(uint32_t sectorNumber, const uint8_t *pBuffer)
 {
-
-	uint8_t response = IssueCommand(24, sectorNumber, SD::ResponseType::R1);
+	IssueCommandWriteSingleSector(sectorNumber);
 
 	// MEMO: セクタ読み込みと同じ方式
 	// TODO: データパケット読み込みの共通化
@@ -625,7 +654,7 @@ void SdDriver::WriteSector(uint32_t sectorNumber, const uint8_t *pBuffer)
 	uint8_t crc[2] = { 0x00, 0x00 };
 	HAL_SPI_TransmitReceive(m_Spi, m_Dummy, crc, sizeof(crc), 0xFFFF);
 
-	response = GetDataResponse();
+	uint8_t response = GetDataResponse();
 	printf("[SD] Data Response: 0x%02X\n", response);
 
 	CsDisable();
@@ -634,11 +663,13 @@ void SdDriver::WriteSector(uint32_t sectorNumber, const uint8_t *pBuffer)
 void SdDriver::EraseSector(uint32_t sectorNumber)
 {
 	// TODO: Not Implemented
+	printf("[SD] Error: Not implemented.\n");
+	ASSERT(0);
 }
 
 void SdDriver::ReadRegister(SD::CID *pOutRegister)
 {
-	IssueCommand(10, 0x00000000, SD::ResponseType::R1);
+	IssueCommandSendCid();
 
 	// MEMO: セクタ読み込みと同じ方式
 	// TODO: データパケット読み込みの共通化
@@ -675,8 +706,8 @@ void SdDriver::ReadRegister(SD::CID *pOutRegister)
 
 void SdDriver::ReadRegister(SD::OCR *pOutRegister)
 {
-	uint32_t ocr;
-	IssueCommand(58, 0x00000000, SD::ResponseType::R3, &ocr);
+	uint32_t ocr = 0;
+	IssueCommandReadOcr(&ocr);
 
 	pOutRegister->CARD_POWER_UP_STATUS_BIT = (uint8_t)((ocr & 0x80000000) >> 31);
 	pOutRegister->CARD_CAPACITY_STATUS     = (uint8_t)((ocr & 0x40000000) >> 30);
@@ -704,7 +735,7 @@ void SdDriver::ReadRegister(SD::OCR *pOutRegister)
 
 void SdDriver::ReadRegister(SD::CSD *pOutRegister)
 {
-	IssueCommand(9, 0x00000000, SD::ResponseType::R1);
+	IssueCommandSendCsd();
 
 	// MEMO: セクタ読み込みと同じ方式
 	// TODO: データパケット読み込みの共通化
@@ -757,9 +788,7 @@ void SdDriver::ReadRegister(SD::CSD *pOutRegister)
 
 void SdDriver::ReadRegister(SD::SCR *pOutRegister)
 {
-	// ACMD51 (CMD55 -> CMD51)
-	IssueCommandAppCmd();
-	IssueCommand(51, 0x40000000, SD::ResponseType::R1);
+	IssueCommandSendScr();
 
 	// MEMO: セクタ読み込みと同じ方式
 	// TODO: データパケット読み込みの共通化
@@ -791,9 +820,7 @@ void SdDriver::ReadRegister(SD::SCR *pOutRegister)
 
 void SdDriver::ReadRegister(SD::SSR *pOutRegister)
 {
-	// ACMD51 (CMD55 -> CMD51)
-	IssueCommandAppCmd();
-	IssueCommand(13, 0x40000000, SD::ResponseType::R1);
+	IssueCommandSdStatus();
 
 	// MEMO: セクタ読み込みと同じ方式
 	// TODO: データパケット読み込みの共通化
@@ -825,5 +852,4 @@ void SdDriver::ReadRegister(SD::SSR *pOutRegister)
 	pOutRegister->ERASE_SIZE			 = (((uint16_t)rxData[11] << 8) | rxData[12]);
 	pOutRegister->ERASE_TIMEOUT			 = (rxData[13] & 0xFC) >> 2;
 	pOutRegister->ERASE_OFFSET			 = (rxData[13] & 0x03);
-
 }
