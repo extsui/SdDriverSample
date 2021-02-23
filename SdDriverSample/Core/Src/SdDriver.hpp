@@ -47,7 +47,18 @@ public:
 	void MainLoop();
 
 private:
-	void IssueCommand(uint8_t command, uint32_t argument);
+	uint8_t IssueCommand(uint8_t command, uint32_t argument, SD::ResponseType responseType, void *pAdditionalResponse);
+	uint8_t IssueCommand(uint8_t command, uint32_t argument, SD::ResponseType responseType)
+	{
+		return IssueCommand(command, argument, responseType, nullptr);
+	}
+
+	void IssueCommandGoIdleState();
+	void IssueCommandSendIfCond();
+	void IssueCommandAppCmd();
+	void IssueCommandAppSendOpCond();
+	void IssueCommandGetStatus();
+
 	uint8_t GetResponseR1();
 	uint8_t GetResponseR2(uint8_t *pOutErrorStatus);
 	uint8_t GetResponseR3R7(uint32_t *pOutReturnValue);

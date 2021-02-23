@@ -11,6 +11,40 @@ constexpr uint8_t DATA_START_TOKEN_EXCEPT_CMD25 = 0xFE;
 constexpr uint8_t DATA_START_TOKEN_CMD25 = 0xFC;
 constexpr uint8_t DATA_STOP_TOKEN = 0xFD;
 
+// レスポンス形式
+enum class ResponseType {
+	R1 = 0,		// [ R1 (8bit) ]
+	R2,			// [ R1 (8bit) ][ ErrorStatus (8bit)  ]
+	R3,			// [ R1 (8bit) ][ OCR         (32bit) ]
+	R7,			// [ R1 (8bit) ][ ReturnValue (32bit) ]
+	R1b,		// [ R1 (8bit) ]__(busy)__
+	Count,
+};
+
+// R1 レスポンス形式
+enum class R1ResponseFormat : uint8_t {
+	CheckBit           = 0x80, // 7bit 目は 1 固定 (確認用)
+	ParameterError     = 0x40,
+	AddressError       = 0x20,
+	EraseSequenceError = 0x10,
+	ComCrcError        = 0x08,
+	IllegalCommand     = 0x04,
+	EraseReset         = 0x02,
+	InIdleState        = 0x01,
+};
+
+// R2 エラー状態
+enum class R2ErrorStatus : uint8_t {
+	OutOfRange    = 0x80,
+	EraseParam    = 0x40,
+	WpViolation   = 0x20,
+	CardEccFailed = 0x10,
+	CcError       = 0x08,
+	Error         = 0x04,
+	WpEraseSkip   = 0x02,
+	CardIsLocked  = 0x01,
+};
+
 #pragma pack(push, 1)
 
 // CID: Card Identification (128 ビット)
