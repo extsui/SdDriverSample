@@ -58,14 +58,20 @@ private:
 	void IssueCommandSendCsd();
 	// CMD10
 	void IssueCommandSendCid();
+	// CMD12
+	void IssueCommandStopTransmission();
 	// CMD13
 	void IssueCommandGetStatus();
 	// CMD16
 	void IssueCommandSetBlocklen();
 	// CMD17
-	void IssueCommandReadSingleSector(uint32_t sectorNumber);
+	void IssueCommandReadSingleBlock(uint32_t sectorIndex);
+	// CMD18
+	void IssueCommandReadMultipleBlock(uint32_t sectorIndex);
 	// CMD24
-	void IssueCommandWriteSingleSector(uint32_t sectorNumber);
+	void IssueCommandWriteSingleBlock(uint32_t sectorIndex);
+	// CMD25
+	void IssueCommandWriteMultipleBlock(uint32_t sectorIndex);
 	// CMD55
 	void IssueCommandAppCmd();
 	// CMD58
@@ -78,13 +84,15 @@ private:
 	void IssueCommandSendScr();
 
 	uint8_t GetResponseR1();
+	uint8_t GetResponseR1b();
 	uint8_t GetResponseR2(uint8_t *pOutErrorStatus);
 	uint8_t GetResponseR3R7(uint32_t *pOutReturnValue);
 	uint8_t GetDataResponse();
 	
-	void ReadSector(uint32_t sectorNumber, uint8_t *pOutBuffer);
-	void WriteSector(uint32_t sectorNumber, const uint8_t *pBuffer);
-	void EraseSector(uint32_t sectorNumber);
+	void ReadSector(uint8_t *pOutBuffer, uint32_t sectorIndex);
+	void ReadSector(uint8_t *pOutBuffer, uint32_t sectorIndex, uint32_t blockNum);
+	void WriteSector(const uint8_t *pBuffer, uint32_t sectorIndex);
+	void EraseSector(uint32_t sectorIndex);
 
 	void ReadRegister(SD::CID *pOutRegister);
 	void ReadRegister(SD::CSD *pOutRegister);

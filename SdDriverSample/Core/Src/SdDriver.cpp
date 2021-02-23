@@ -314,7 +314,7 @@ void SdDriver::MainLoop()
     printf("  ERASE_TIMEOUT          : %02X\n",  ssr.ERASE_TIMEOUT         );
     printf("  ERASE_OFFSET           : %02X\n",  ssr.ERASE_OFFSET          );
 
-	ReadSector(0, buffer);
+	ReadSector(buffer, 0);
 	Hexdump(buffer, sizeof(buffer));
 
 	// REPL
@@ -333,17 +333,17 @@ void SdDriver::MainLoop()
 		if (strncmp((const char*)command, "w", 1) == 0) {
 			// TODO:
 			printf("Write Command\n");
-			WriteSector(0, g_TestWriteData2);
+			WriteSector(g_TestWriteData2, 0);
 
 		} else if (strncmp((const char*)command, "r", 1) == 0) {
 			printf("Read Command\n");
 			// TODO: 引数で指定セクタを読み込めるようにする
 			printf("[0]");
-			ReadSector(0, buffer);
+			ReadSector(buffer, 0);
 			Hexdump(buffer, sizeof(buffer));
 
 			printf("[1]");
-			ReadSector(1, buffer);
+			ReadSector(buffer, 1);
 			Hexdump(buffer, sizeof(buffer));
 			/*
 			// Byte Addressing の SD カードの場合は 1-513 バイト目になる
@@ -351,6 +351,15 @@ void SdDriver::MainLoop()
 			ReadSector(1, buffer);
 			Hexdump(buffer, sizeof(buffer));
 			*/
+
+		} else if (strncmp((const char*)command, "mr", 2) == 0) {
+			printf("Multiple Read\n");
+			// TODO: 引数で指定セクタを読み込めるようにする
+			const int sectorCount = 2;
+			static uint8_t largeBuffer[SD::SECTOR_SIZE * sectorCount];
+			ReadSector(largeBuffer, 0, sectorCount);
+			Hexdump(largeBuffer, sizeof(largeBuffer));
+
 		} else if (strncmp((const char*)command, "s", 1) == 0) {
 			IssueCommandGetStatus();
 		}
@@ -402,9 +411,8 @@ uint8_t SdDriver::IssueCommand(uint8_t command, uint32_t argument, SD::ResponseT
 		break;
 
 	case SD::ResponseType::R1b:
-		// TODO: Not Implemented
-		printf("[SD] R1b is not implemented.\n");
-		ASSERT(0);
+		r1Response = GetResponseR1b();
+		printf("[SD] R1b 0x%02X\n", r1Response);
 		break;
 
 	default:
@@ -456,6 +464,12 @@ void SdDriver::IssueCommandSendCid()
 	IssueCommand(10, 0x00000000, SD::ResponseType::R1);
 }
 
+// CMD12
+void SdDriver::IssueCommandStopTransmission()
+{
+	IssueCommand(12, 0x00000000, SD::ResponseType::R1b);
+}
+
 // CMD13 + エラー確認
 void SdDriver::IssueCommandGetStatus()
 {
@@ -473,15 +487,27 @@ void SdDriver::IssueCommandSetBlocklen()
 }
 
 // CMD17
-void SdDriver::IssueCommandReadSingleSector(uint32_t sectorNumber)
+void SdDriver::IssueCommandReadSingleBlock(uint32_t sectorIndex)
 {
-	IssueCommand(17, sectorNumber, SD::ResponseType::R1);
+	IssueCommand(17, sectorIndex, SD::ResponseType::R1);
+}
+
+// CMD18
+void SdDriver::IssueCommandReadMultipleBlock(uint32_t sectorIndex)
+{
+	IssueCommand(18, sectorIndex, SD::ResponseType::R1);
 }
 
 // CMD24
-void SdDriver::IssueCommandWriteSingleSector(uint32_t sectorNumber)
+void SdDriver::IssueCommandWriteSingleBlock(uint32_t sectorIndex)
 {
-	IssueCommand(24, sectorNumber, SD::ResponseType::R1);
+	IssueCommand(24, sectorIndex, SD::ResponseType::R1);
+}
+
+// CMD25
+void SdDriver::IssueCommandWriteMultipleBlock(uint32_t sectorIndex)
+{
+	IssueCommand(25, sectorIndex, SD::ResponseType::R1);
 }
 
 // CMD55 (ACMDn 用)
@@ -547,6 +573,36 @@ uint8_t SdDriver::GetResponseR1()
 	return rxData[0];
 }
 
+uint8_t SdDriver::GetResponseR1b()
+{
+	uint8_t txData[1] = { 0xFF, };	// Dummy
+	uint8_t rxData[1];
+
+	// CMD12 では 1 バイト分空読みが必要
+	// TODO: 他の R1b コマンドを試していないので CMD12 のみの特別対応なのか要調査
+	HAL_SPI_TransmitReceive(m_Spi, txData, rxData, sizeof(rxData), 0xFFFF);
+
+	uint8_t r1Response = GetResponseR1();
+
+	// DEBUG: Busy 待ち回数カウンタ。デバッグ用
+	int busyCount = 0;
+
+	// Busy 解除待ち
+	// Busy の間は DO ラインが Lo 固定になっている
+	while (1) {
+		HAL_SPI_TransmitReceive(m_Spi, txData, rxData, sizeof(rxData), 0xFFFF);
+		if (rxData[0] != 0x00) {
+			break;
+		}
+		busyCount++;
+	}
+
+	// DEBUG:
+	printf("[SD] R1b BusyCount %d\n", busyCount);
+
+	return r1Response;
+}
+
 uint8_t SdDriver::GetResponseR2(uint8_t *pOutErrorStatus)
 {
 	uint8_t r1Response = GetResponseR1();
@@ -601,9 +657,11 @@ uint8_t SdDriver::GetDataResponse()
 	return response;
 }
 
-void SdDriver::ReadSector(uint32_t sectorNumber, uint8_t *pOutBuffer)
+void SdDriver::ReadSector(uint8_t *pOutBuffer, uint32_t sectorIndex)
 {
-	IssueCommandReadSingleSector(sectorNumber);
+	ASSERT(pOutBuffer != nullptr);
+
+	IssueCommandReadSingleBlock(sectorIndex);
 
 	// データパケット読み込み
 	CsEnable();
@@ -631,9 +689,44 @@ void SdDriver::ReadSector(uint32_t sectorNumber, uint8_t *pOutBuffer)
 	CsDisable();
 }
 
-void SdDriver::WriteSector(uint32_t sectorNumber, const uint8_t *pBuffer)
+void SdDriver::ReadSector(uint8_t *pOutBuffer, uint32_t sectorIndex, uint32_t blockNum)
 {
-	IssueCommandWriteSingleSector(sectorNumber);
+	ASSERT(pOutBuffer != nullptr);
+
+	// TODO: シングルセクタリードとの共有 (削除)
+
+	IssueCommandReadMultipleBlock(sectorIndex);
+
+	// データパケット読み込み
+	CsEnable();
+	for (uint32_t i = 0; i < blockNum; i++) {
+		while (1) {
+			uint8_t txData[1] = { 0xFF };
+			uint8_t rxData[1];
+			HAL_SPI_TransmitReceive(m_Spi, txData, rxData, 1, 0xFFFF);
+			if (rxData[0] == SD::DATA_START_TOKEN_EXCEPT_CMD25) {
+				break;
+			}
+		}
+
+		// HAL_SPI_Receive() だと 0xFF 以外のデータが送信されてしまうので
+		// HAL_SPI_TransmitReceive() を使用する必要がある
+		HAL_SPI_TransmitReceive(m_Spi, m_Dummy, &pOutBuffer[i * SD::SECTOR_SIZE], SD::SECTOR_SIZE, 0xFFFF);
+
+		// データパケットに CRC が含まれているので読み込むが確認はしない
+		uint8_t crc[2];
+		HAL_SPI_TransmitReceive(m_Spi, m_Dummy, crc, sizeof(crc), 0xFFFF);
+	}
+	CsDisable();
+
+	IssueCommandStopTransmission();
+}
+
+void SdDriver::WriteSector(const uint8_t *pBuffer, uint32_t sectorIndex)
+{
+	ASSERT(pBuffer != nullptr);
+
+	IssueCommandWriteSingleBlock(sectorIndex);
 
 	// MEMO: セクタ読み込みと同じ方式
 	// TODO: データパケット読み込みの共通化
@@ -660,7 +753,7 @@ void SdDriver::WriteSector(uint32_t sectorNumber, const uint8_t *pBuffer)
 	CsDisable();
 }
 
-void SdDriver::EraseSector(uint32_t sectorNumber)
+void SdDriver::EraseSector(uint32_t sectorIndex)
 {
 	// TODO: Not Implemented
 	printf("[SD] Error: Not implemented.\n");
