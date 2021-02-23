@@ -155,6 +155,8 @@ const uint8_t g_TestWriteData2[] = {
 // ----------------------------------------------------------------------
 SdDriver::SdDriver(SPI_HandleTypeDef *spi)
 	: m_Spi(spi)
+	, m_IsInitialized(false)
+	, m_SectorCount(0xFFFFFFFF)
 {
 	std::memset(m_Dummy, 0xFF, SD::SECTOR_SIZE);
 }
@@ -202,8 +204,8 @@ void SdDriver::Initialize()
 		ASSERT(0);
 	}
 
+	// ACMD41
 	do {
-		// ACMD41 (CMD55 -> CMD41)
 		IssueCommand(55, 0x00000000);
 		response = GetResponseR1();
 		printf("[SD] CMD55 Response: 0x%02X\n", response);
@@ -233,6 +235,18 @@ void SdDriver::Initialize()
 	} else {
 		printf("[SD] Block Addressing\n");
 	}
+
+	// -- ここまでで初期化は完了 --
+
+	// SD カードの容量取得
+	SD::CSD csd;
+	ReadRegister(&csd);
+	m_SectorCount = csd.C_SIZE * 1024;
+	printf("[SD] Sector Count: %d\n", m_SectorCount);
+	// 容量 = セクタ総数 * 512 --> m_SectorCount * 512 / 1024 / 1024 / 1024 [GiB]
+	printf("[SD] SD Card Capacity: about %d GiB\n", m_SectorCount / 2 / 1024 / 1024);
+
+	m_IsInitialized = true;
 }
 
 void SdDriver::MainLoop()

@@ -28,6 +28,13 @@ class SdDriver
 {
 private:
 	SPI_HandleTypeDef *m_Spi;
+
+	// 初期化済みフラグ
+	bool m_IsInitialized;
+
+	// セクタ総数
+	uint32_t m_SectorCount;
+
 	// SPI 送信用のダミーデータ
 	// 全て 0xFF で埋めて使用すること。
 	uint8_t m_Dummy[SD::SECTOR_SIZE];
